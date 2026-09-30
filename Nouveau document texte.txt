@@ -1,0 +1,35 @@
+État du dossier Terminus — 30/09/2026
+=====================================
+
+Le jeu n'est plus modifié dans son code : 3 scripts de patch sont ajoutés
+APRÈS le script principal, dans Terminus.html ET Terminus_lent.html.
+
+Script 1 — Patch sauvegarde (avant le script principal)
+- En file:// (double-clic), les cookies natifs sont bloqués par Chrome.
+- Le shim redirige document.cookie vers localStorage → la sauvegarde
+  fonctionne. Test automatisé : node test_cookie_shim.js Terminus.html
+
+Script 2 — Patch copier/coller au clavier
+- Ctrl+V colle dans la ligne de commande, Ctrl+C copie si du texte est
+  sélectionné (sinon ^C interrupt), Ctrl+X chemin, Ctrl+U efface.
+- CORRECTION du 30/09 : ce script était présent EN DOUBLE dans
+  Terminus_lent.html → le collage insérait le texte 2 fois. Doublon
+  supprimé (1 seule copie désormais, comme dans Terminus.html).
+
+Script 3 — NOUVEAU (v2) : collage au CLIC DROIT, façon terminal Linux
+- Clic droit dans le terminal (sans texte sélectionné) : le presse-papiers
+  est lu directement et le texte est collé IMMÉDIATEMENT dans la ligne de
+  commande, sans menu (comme dans un vrai terminal Linux).
+- Au premier clic, Chrome peut demander l'autorisation presse-papiers :
+  accepter une seule fois, ensuite le collage est instantané.
+- Si l'autorisation est refusée : repli sur le menu natif « Coller »
+  via un champ invisible.
+- Clic du MILIEU : colle la dernière sélection faite dans la page
+  (comportement « sélection primaire » X11).
+- Si du texte est sélectionné, le clic droit garde le menu « Copier » natif.
+
+Nettoyage du 30/09 :
+- Supprimé : script_extrait.backup.js (copie identique de script_extrait.js,
+  qui reste présente comme référence du script original extrait).
+
+Recharge la page (Ctrl+R) après mise à jour pour tester. 🎮
