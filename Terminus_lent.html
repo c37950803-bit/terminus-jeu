@@ -1339,7 +1339,9 @@
                             t.show_msg(t.context.getStarterMsg(_("welcome_msg", [user.name]) + "\n")),
                             t.enable_input();
                     else {
-                        t.muteCommandResult(), music.play("preload");
+                        t.muteCommandResult(),
+                            state.cookie && t.notification(_("save_on")),
+                            music.play("preload");
                         var o = new Seq();
                         o.then(function (e) {
                             t.unmuteSound(),
@@ -1550,6 +1552,8 @@
                 cookie_yes: "oui (nouveau jeu)",
                 cookie_yes_load: "oui (reprendre la partie en cours%s)",
                 cookie_no: "non (pas de sauvegarde)",
+                save_on:
+                    "Sauvegarde activée ! Au prochain lancement, choisis « oui (reprendre la partie en cours) » pour retrouver ta partie.",
                 yes: "oui",
                 no: "non",
                 item_none: "Objet",
@@ -2015,6 +2019,14 @@
                     "Tu sais que ce n'est pas le moment de penser à cela,\nmais cet enfant tire vraiment une drôle de tête.",
                 people_kidnapped_mv:
                     "L'enfant regarde autour de lui, confus, surpris de se trouver hors de la cage.\nTu lui souris et lui dis avec une voix douce : \n<voice char> « Tu devrais rentrer chez toi p'tit gars. » \n<voice girl>\"Quoi ? Pourquoi il faut toujours être un garçon par défaut ? Je suis une fille avec des cheveux courts. En plus, t'as l'air d'une crapule toi.\", <voice char> dit la petite fille juste avant de s'échapper.",
+                people_kidnapped_mv2:
+                    "(La petite fille est déjà rentrée auprès de ses parents : plus besoin de la déplacer.)",
+                people_cryingman_free:
+                    "<voice grl>\"Ma femme ! Mon enfant !\" \nL'homme pleure de joie en serrant sa famille contre lui. \n\"Vous êtes tous là… Merci, mille mercis. Ma famille est complète grâce à toi.\"",
+                people_citizen3_text6:
+                    "La villageoise ne pleure plus : elle serre son enfant dans ses bras, soulagée. \n« Mon bébé ! Te revoilà ! » \nSe tournant vers son mari : « Nous voilà tous réunis. Merci infiniment. »",
+                cage_reunion_mesg:
+                    "Quelques instants plus tard, à la {{room_clearing}} : l'enfant a retrouvé ses parents ! \nPère, mère et enfant s'embrassent, enfin réunis.",
                 man_cd: '(Choisis ta destination) Utilise "cd" pour explorer le monde. \nIl faut écrire : cd CHEMIN',
                 help_cd: "Se déplacer dans un autre chemin.",
                 man_mv: '(MouVement). \nUtilise "mv" pour déplacer un objet. \nIl faut écrire : mv OBJET LIEU_DE_DESTINATION',
@@ -5214,6 +5226,11 @@
                         talk: function (e) {
                             lady.setTextIdx(lady_txtidx++);
                         },
+                        // Après la libération de l'enfant, la mère ne pleure plus :
+                        // son texte « less » reste fixé sur la réunion de la famille.
+                        reunion: function () {
+                            lady.setTextIdx(6);
+                        },
                     }),
                 disabled_sell_choices = [];
             $townsquare.addPath(newRoom("market", "loc_market.gif", { writable: !0 }).addCommand("touch")),
@@ -5430,7 +5447,12 @@
                                     success(vt, "room_house", e),
                                     $clearing.unsetCmdText("cd"),
                                     $clearing.setIntroText(_("room_clearing_text2")),
-                                    CryingMan.setCmdText("less", _("room_clearing_less2"));
+                                    CryingMan.setCmdText(
+                                        "less",
+                                        state.get("kidfreed")
+                                            ? _("people_cryingman_free")
+                                            : _("room_clearing_less2")
+                                    );
                             },
                         })
                 );
@@ -5483,10 +5505,26 @@
             var Kid = $cage
                 .newPeople("kidnapped", "item_boy.png")
                 .setCmdText("mv", _("people_kidnapped_mv"))
-                .setCmdEvent("mv", "freekid")
+                .setCmdEvent("mv", "freeKid")
                 .addStates({
-                    freeKid: function () {
+                    freeKid: function (e) {
+                        // e === false : événement lancé en direct par la commande mv
+                        // e === "1"   : rejeu automatique au chargement d'une sauvegarde
+                        var premier = !state.get("kidfreed");
+                        state.set("kidfreed", 1);
+                        Kid.setCmdText("mv", _("people_kidnapped_mv2"));
+                        CryingMan.setCmdText("less", _("people_cryingman_free"));
+                        lady.setCmdEvent("less_done", "reunion");
+                        lady.setTextIdx(6);
                         Kid.moveTo($clearing);
+                        lady.moveTo($clearing);
+                        premier &&
+                            !e &&
+                            mesg(_("cage_reunion_mesg"), null, {
+                                user: "Système",
+                                tty: "Terminus",
+                                timeout: 400,
+                            });
                     },
                 });
             $trollcave.addPath(newRoom("slide", null, { executable: !1 }).setCmdText("cd", _("room_slide_cd"))),
@@ -5729,17 +5767,17 @@
         </script>
                 <script>
             (function () {
-                // Patch 3 (v2) : collage au CLIC DROIT, comme dans un terminal Linux.
-                // - Clic droit (sans sélection) : colle IMMÉDIATEMENT le presse-papiers
-                //   dans la ligne de commande, sans menu. Au premier clic, Chrome peut
-                //   demander l'autorisation presse-papiers : accepter une seule fois.
-                // - Si l'autorisation est refusée (ou API absente) : repli sur le menu
-                //   contextuel natif « Coller » via un champ invisible.
+                // Patch 3 (v3) : collage au CLIC DROIT, comme dans un terminal Linux.
+                // - Clic droit (sans sélection) : ouvre le menu contextuel NATIF avec
+                //   « Coller », ciblé sur un champ invisible placé au curseur.
+                //   L'API navigator.clipboard.readText() n'est PLUS JAMAIS appelée :
+                //   plus aucune demande de permission Chrome (le presse-papiers ne
+                //   peut pas être mémorisé en file://, d'où la demande à chaque clic).
                 // - Clic du MILIEU : colle la dernière sélection faite dans la page
                 //   (comportement « sélection primaire » X11).
                 // - Texte sélectionné : le clic droit garde le menu « Copier » natif.
+                // - Ctrl+V : collage natif via l'événement paste (aucune permission).
                 var helper = null;
-                var clipboardOK = null; // null = inconnu, true = direct, false = menu
                 var primaire = "";      // dernière sélection dans la page (sélection primaire)
 
                 function dansLigne(text) {
@@ -5783,41 +5821,25 @@
                         if (primaire) dansLigne(primaire);
                         return;
                     }
-                    if (e.button !== 2) return;
-                    var sel = window.getSelection();
-                    if (sel && sel.toString()) return; // sélection : menu natif (copie)
-                    // Collage immédiat : lecture directe du presse-papiers
-                    if (navigator.clipboard && navigator.clipboard.readText) {
-                        navigator.clipboard
-                            .readText()
-                            .then(function (text) {
-                                clipboardOK = true;
-                                dansLigne(text);
-                            })
-                            .catch(function () {
-                                clipboardOK = false;
-                            });
-                    } else {
-                        clipboardOK = false;
-                    }
+                    // Clic droit : rien à faire ici, le menu natif est géré
+                    // dans le gestionnaire « contextmenu » ci-dessous.
+                    // (Aucun accès au presse-papiers : zéro permission demandée.)
                 });
 
                 document.addEventListener("contextmenu", function (e) {
                     var sel = window.getSelection();
                     if (sel && sel.toString()) return; // menu natif « Copier »
-                    if (clipboardOK === false) {
-                        // Repli : menu natif « Coller » ciblant le champ invisible
-                        if (!helper) makeHelper();
-                        helper.value = "";
-                        helper.style.left = e.clientX + "px";
-                        helper.style.top = e.clientY + "px";
-                        helper.focus();
-                        return; // le menu natif s'affiche
-                    }
-                    e.preventDefault(); // collage immédiat, pas de menu
+                    // Menu natif « Coller » ciblant le champ invisible : le menu
+                    // s'affiche (pas de preventDefault) et « Coller » fonctionne
+                    // sans aucune permission presse-papiers.
+                    if (!helper) makeHelper();
+                    helper.value = "";
+                    helper.style.left = e.clientX + "px";
+                    helper.style.top = e.clientY + "px";
+                    helper.focus();
                 });
 
-                console.log("Patch collage clic droit v2 (façon Linux) appliqué !");
+                console.log("Patch collage clic droit v3 (menu natif, zéro permission) appliqué !");
             })();
         </script>
     </body>
